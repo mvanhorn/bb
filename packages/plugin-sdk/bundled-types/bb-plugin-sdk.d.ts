@@ -255,7 +255,6 @@ declare const experimentsSchema: z$1.ZodRecord<z$1.ZodEnum<{
     claudeCodeMockCliTraffic: "claudeCodeMockCliTraffic";
     editMessages: "editMessages";
     newOnboarding: "newOnboarding";
-    toolsHub: "toolsHub";
 }>, z$1.ZodBoolean>;
 type Experiments = z$1.infer<typeof experimentsSchema>;
 
@@ -2771,6 +2770,10 @@ declare const registrySkillsPageSchema: z$1.ZodObject<{
         total: z$1.ZodNumber;
         hasMore: z$1.ZodBoolean;
     }, z$1.core.$strip>;
+    ranking: z$1.ZodEnum<{
+        trending: "trending";
+        "all-time": "all-time";
+    }>;
 }, z$1.core.$strip>;
 type RegistrySkillsPage = z$1.infer<typeof registrySkillsPageSchema>;
 declare const registryRepositoryStarsSchema: z$1.ZodObject<{
@@ -2788,6 +2791,26 @@ declare const registrySkillDetailSchema: z$1.ZodObject<{
     }, z$1.core.$strip>>>;
 }, z$1.core.$strip>;
 type RegistrySkillDetail = z$1.infer<typeof registrySkillDetailSchema>;
+/**
+ * Entries that could not be resolved (dead detail page, malformed id) are
+ * omitted rather than failing the batch: each entry is independent upstream,
+ * and callers already treat a missing entry as "unknown" per card.
+ */
+declare const registrySkillEntriesResponseSchema: z$1.ZodObject<{
+    entries: z$1.ZodArray<z$1.ZodObject<{
+        id: z$1.ZodString;
+        source: z$1.ZodString;
+        skillId: z$1.ZodString;
+        name: z$1.ZodString;
+        installs: z$1.ZodNumber;
+        stars: z$1.ZodNullable<z$1.ZodNumber>;
+        installUrl: z$1.ZodNullable<z$1.ZodString>;
+        url: z$1.ZodString;
+        topic: z$1.ZodNullable<z$1.ZodString>;
+        summary: z$1.ZodNullable<z$1.ZodString>;
+    }, z$1.core.$strip>>;
+}, z$1.core.$strip>;
+type RegistrySkillEntriesResponse = z$1.infer<typeof registrySkillEntriesResponseSchema>;
 declare const registrySkillInstallResponseSchema: z$1.ZodObject<{
     ok: z$1.ZodLiteral<true>;
     filePath: z$1.ZodString;
@@ -2969,6 +2992,7 @@ declare const environmentStatusResponseSchema: z$1.ZodDiscriminatedUnion<[z$1.Zo
         workingTree: z$1.ZodObject<{
             insertions: z$1.ZodNumber;
             deletions: z$1.ZodNumber;
+            lineStatsComplete: z$1.ZodBoolean;
             files: z$1.ZodArray<z$1.ZodObject<{
                 path: z$1.ZodString;
                 status: z$1.ZodEnum<{
@@ -3014,6 +3038,7 @@ declare const environmentStatusResponseSchema: z$1.ZodDiscriminatedUnion<[z$1.Zo
         mergeBase: z$1.ZodNullable<z$1.ZodObject<{
             insertions: z$1.ZodNumber;
             deletions: z$1.ZodNumber;
+            lineStatsComplete: z$1.ZodBoolean;
             files: z$1.ZodArray<z$1.ZodObject<{
                 path: z$1.ZodString;
                 status: z$1.ZodEnum<{
@@ -3599,8 +3624,8 @@ declare const hostDaemonCommandRegistry: {
         }, z$1.core.$strict>], "kind">>;
         disallowedTools: z$1.ZodOptional<z$1.ZodArray<z$1.ZodString>>;
         instructionMode: z$1.ZodEnum<{
-            append: "append";
             replace: "replace";
+            append: "append";
         }>;
         type: z$1.ZodLiteral<"thread.rewind.prepare">;
         leaseId: z$1.ZodString;
@@ -3800,8 +3825,8 @@ declare const hostDaemonCommandRegistry: {
         }, z$1.core.$strict>], "kind">>;
         disallowedTools: z$1.ZodOptional<z$1.ZodArray<z$1.ZodString>>;
         instructionMode: z$1.ZodEnum<{
-            append: "append";
             replace: "replace";
+            append: "append";
         }>;
         type: z$1.ZodLiteral<"thread.start">;
         requestId: z$1.ZodString;
@@ -4293,8 +4318,8 @@ declare const hostDaemonCommandRegistry: {
                 }>;
             }, z$1.core.$strip>;
             instructionMode: z$1.ZodEnum<{
-                append: "append";
                 replace: "replace";
+                append: "append";
             }>;
             projectId: z$1.ZodString;
             providerId: z$1.ZodString;
@@ -4609,8 +4634,8 @@ declare const hostDaemonCommandRegistry: {
                 }>;
             }, z$1.core.$strip>;
             instructionMode: z$1.ZodEnum<{
-                append: "append";
                 replace: "replace";
+                append: "append";
             }>;
             projectId: z$1.ZodString;
             providerId: z$1.ZodString;
@@ -5646,9 +5671,9 @@ declare const hostDaemonCommandRegistry: {
         executablePath: z$1.ZodNullable<z$1.ZodString>;
         installed: z$1.ZodBoolean;
         installSource: z$1.ZodEnum<{
-            external: "external";
             notInstalled: "notInstalled";
             npmGlobal: "npmGlobal";
+            external: "external";
         }>;
         currentVersion: z$1.ZodNullable<z$1.ZodString>;
         latestVersion: z$1.ZodNullable<z$1.ZodString>;
@@ -5743,6 +5768,7 @@ declare const hostDaemonCommandRegistry: {
             workingTree: z$1.ZodObject<{
                 insertions: z$1.ZodNumber;
                 deletions: z$1.ZodNumber;
+                lineStatsComplete: z$1.ZodBoolean;
                 files: z$1.ZodArray<z$1.ZodObject<{
                     path: z$1.ZodString;
                     status: z$1.ZodEnum<{
@@ -5788,6 +5814,7 @@ declare const hostDaemonCommandRegistry: {
             mergeBase: z$1.ZodNullable<z$1.ZodObject<{
                 insertions: z$1.ZodNumber;
                 deletions: z$1.ZodNumber;
+                lineStatsComplete: z$1.ZodBoolean;
                 files: z$1.ZodArray<z$1.ZodObject<{
                     path: z$1.ZodString;
                     status: z$1.ZodEnum<{
@@ -5821,13 +5848,13 @@ declare const hostDaemonCommandRegistry: {
         outcome: z$1.ZodLiteral<"unavailable">;
         failure: z$1.ZodObject<{
             code: z$1.ZodEnum<{
+                unknown: "unknown";
                 path_not_found: "path_not_found";
                 not_git_repo: "not_git_repo";
                 not_worktree: "not_worktree";
                 workspace_type_mismatch: "workspace_type_mismatch";
                 permission_denied: "permission_denied";
                 unknown_environment: "unknown_environment";
-                unknown: "unknown";
             }>;
             workspacePath: z$1.ZodString;
             message: z$1.ZodString;
@@ -5858,6 +5885,7 @@ declare const hostDaemonCommandRegistry: {
         }, z$1.core.$strip>], "type">;
         maxDiffBytes: z$1.ZodNumber;
         maxFileListBytes: z$1.ZodNumber;
+        maxUntrackedFiles: z$1.ZodNumber;
     }, z$1.core.$strict>, z$1.ZodDiscriminatedUnion<[z$1.ZodObject<{
         outcome: z$1.ZodLiteral<"available">;
         diff: z$1.ZodObject<{
@@ -5871,13 +5899,13 @@ declare const hostDaemonCommandRegistry: {
         outcome: z$1.ZodLiteral<"unavailable">;
         failure: z$1.ZodObject<{
             code: z$1.ZodEnum<{
+                unknown: "unknown";
                 path_not_found: "path_not_found";
                 not_git_repo: "not_git_repo";
                 not_worktree: "not_worktree";
                 workspace_type_mismatch: "workspace_type_mismatch";
                 permission_denied: "permission_denied";
                 unknown_environment: "unknown_environment";
-                unknown: "unknown";
             }>;
             workspacePath: z$1.ZodString;
             message: z$1.ZodString;
@@ -5906,6 +5934,7 @@ declare const hostDaemonCommandRegistry: {
             type: z$1.ZodLiteral<"commit">;
             sha: z$1.ZodString;
         }, z$1.core.$strip>], "type">;
+        maxFiles: z$1.ZodNumber;
     }, z$1.core.$strict>, z$1.ZodDiscriminatedUnion<[z$1.ZodObject<{
         outcome: z$1.ZodLiteral<"available">;
         files: z$1.ZodArray<z$1.ZodObject<{
@@ -5933,13 +5962,13 @@ declare const hostDaemonCommandRegistry: {
         outcome: z$1.ZodLiteral<"unavailable">;
         failure: z$1.ZodObject<{
             code: z$1.ZodEnum<{
+                unknown: "unknown";
                 path_not_found: "path_not_found";
                 not_git_repo: "not_git_repo";
                 not_worktree: "not_worktree";
                 workspace_type_mismatch: "workspace_type_mismatch";
                 permission_denied: "permission_denied";
                 unknown_environment: "unknown_environment";
-                unknown: "unknown";
             }>;
             workspacePath: z$1.ZodString;
             message: z$1.ZodString;
@@ -5981,13 +6010,13 @@ declare const hostDaemonCommandRegistry: {
         outcome: z$1.ZodLiteral<"unavailable">;
         failure: z$1.ZodObject<{
             code: z$1.ZodEnum<{
+                unknown: "unknown";
                 path_not_found: "path_not_found";
                 not_git_repo: "not_git_repo";
                 not_worktree: "not_worktree";
                 workspace_type_mismatch: "workspace_type_mismatch";
                 permission_denied: "permission_denied";
                 unknown_environment: "unknown_environment";
-                unknown: "unknown";
             }>;
             workspacePath: z$1.ZodString;
             message: z$1.ZodString;
@@ -6106,9 +6135,9 @@ declare const providerCliStatusResponseSchema: z$1.ZodRecord<z$1.ZodEnum<{
     executablePath: z$1.ZodNullable<z$1.ZodString>;
     installed: z$1.ZodBoolean;
     installSource: z$1.ZodEnum<{
-        external: "external";
         notInstalled: "notInstalled";
         npmGlobal: "npmGlobal";
+        external: "external";
     }>;
     currentVersion: z$1.ZodNullable<z$1.ZodString>;
     latestVersion: z$1.ZodNullable<z$1.ZodString>;
@@ -7177,7 +7206,6 @@ declare const systemConfigResponseSchema: z$1.ZodObject<{
         claudeCodeMockCliTraffic: "claudeCodeMockCliTraffic";
         editMessages: "editMessages";
         newOnboarding: "newOnboarding";
-        toolsHub: "toolsHub";
     }>, z$1.ZodBoolean>;
     appearance: z$1.ZodObject<{
         themeId: z$1.ZodString;
@@ -12340,10 +12368,16 @@ type PluginCheckUpdatesResult = PluginUpdateCheckEntry[];
 type PluginApplyUpdateResult = PluginApplyUpdateResult$1;
 type PluginCatalogStatusResult = PluginCatalogStatus;
 type PluginCatalogSearchResult = PluginCatalogSearchResult$1[];
+interface PluginCatalogSubmissionResult {
+    /** BB's canonical browser form for proposing a plugin to the marketplace. */
+    url: string;
+}
 interface PluginCatalogArea {
     install(args: PluginCatalogInstallArgs): Promise<PluginInstallResult>;
     search(args: PluginCatalogSearchArgs): Promise<PluginCatalogSearchResult>;
     status(args?: PluginCatalogStatusArgs): Promise<PluginCatalogStatusResult>;
+    /** Return the canonical marketplace submission form; submitting stays browser-owned. */
+    submission(): PluginCatalogSubmissionResult;
 }
 interface PluginsArea {
     applyUpdate(args: PluginIdArgs): Promise<PluginApplyUpdateResult>;
@@ -12510,6 +12544,9 @@ interface RegistrySkillsSearchArgs extends AbortableArgs {
 interface RegistrySkillIdArgs extends AbortableArgs {
     registrySkillId: string;
 }
+interface RegistrySkillEntriesArgs extends AbortableArgs {
+    registrySkillIds: readonly string[];
+}
 interface RegistrySkillSourceArgs extends AbortableArgs {
     source: string;
     skillId: string;
@@ -12526,6 +12563,7 @@ interface RegistrySkillInstallArgs {
 }
 interface SkillsRegistryArea {
     detail(args: RegistrySkillSourceArgs): Promise<RegistrySkillDetail>;
+    entries(args: RegistrySkillEntriesArgs): Promise<RegistrySkillEntriesResponse>;
     get(args: RegistrySkillIdArgs): Promise<RegistrySkill>;
     install(args: RegistrySkillInstallArgs): Promise<RegistrySkillInstallResponse>;
     repositoryStars(args: RegistryRepositoryArgs): Promise<RegistryRepositoryStars>;
