@@ -7,9 +7,11 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@bb/shared-ui/tooltip";
 import { useBbNavigate } from "@/lib/plugin-sdk-hooks";
 import {
   PaneContext,
@@ -49,6 +51,8 @@ const hostState = vi.hoisted(() => ({
     url: string;
   }>,
   compact: false,
+  desktopBrowserApiMode: "scoped" as "legacy" | "scoped",
+  frontendLoadState: "loading" as "loading" | "settled",
   panelAvailable: true,
   rightPanelAvailable: true,
   panelOpen: true,
@@ -77,6 +81,24 @@ const drawerState = vi.hoisted(
 );
 const dispatchBrowserViewBoundsSync = vi.hoisted(() => vi.fn());
 const realizeContent = vi.hoisted(() => vi.fn());
+const desktopBrowserApiState = vi.hoisted(
+  (): {
+    onOpenTab: Array<(event: { url: string }) => void>;
+    onScopedOpenTab: null | ((event: { tabId: string; url: string }) => void);
+  } => ({ onOpenTab: [], onScopedOpenTab: null }),
+);
+const onOpenTab = vi.hoisted(() =>
+  vi.fn((handler: (event: { url: string }) => void) => {
+    desktopBrowserApiState.onOpenTab.push(handler);
+    return vi.fn();
+  }),
+);
+const onScopedOpenTab = vi.hoisted(() =>
+  vi.fn((handler: (event: { tabId: string; url: string }) => void) => {
+    desktopBrowserApiState.onScopedOpenTab = handler;
+    return vi.fn();
+  }),
+);
 
 const rightPanelSlot: PluginNavPanelSlot = {
   id: "docs",
@@ -170,6 +192,7 @@ vi.mock("@/lib/plugin-slots", async () => {
   const React = await import("react");
   return {
     usePluginSlots: () => ({
+      frontendLoadState: hostState.frontendLoadState,
       navPanels: hostState.panelAvailable
         ? [
             {
@@ -302,6 +325,10 @@ vi.mock("@/components/thread/terminal/ThreadTerminalPanel", async () => {
 });
 
 vi.mock("@/lib/bb-desktop", () => ({
+  getDesktopBrowserApi: () =>
+    hostState.desktopBrowserApiMode === "scoped"
+      ? { onOpenTab, onScopedOpenTab }
+      : { onOpenTab },
   isDesktopBrowserAvailable: () => true,
 }));
 
@@ -423,11 +450,13 @@ function HostFixture({
   flushPageInsets = false,
   paneContext = basePaneContext,
   subPath = "",
+  togglePortal,
   url = "https://example.com",
 }: {
   flushPageInsets?: boolean;
   paneContext?: PaneContextValue;
   subPath?: string;
+  togglePortal?: { panelStateId: string; testId: string };
   url?: string;
 }) {
   return (
@@ -439,6 +468,12 @@ function HostFixture({
           subPath={subPath}
           flushPageInsets={flushPageInsets}
         >
+          {togglePortal ? (
+            <div
+              data-plugin-right-panel-toggle-portal={togglePortal.panelStateId}
+              data-testid={togglePortal.testId}
+            />
+          ) : null}
           <PluginSlotMount pluginId="docs" slotKind="test" slotId="browser">
             <NavigationProbe url={url} />
           </PluginSlotMount>
@@ -453,6 +488,8 @@ beforeEach(() => {
   hostState.activePluginPanelTab = null;
   hostState.browserTabs = [];
   hostState.compact = false;
+  hostState.desktopBrowserApiMode = "scoped";
+  hostState.frontendLoadState = "loading";
   hostState.panelAvailable = true;
   hostState.rightPanelAvailable = true;
   hostState.panelOpen = true;
@@ -473,6 +510,10 @@ beforeEach(() => {
   closeTab.mockClear();
   closeTerminalMutate.mockClear();
   realizeContent.mockClear();
+  desktopBrowserApiState.onOpenTab = [];
+  desktopBrowserApiState.onScopedOpenTab = null;
+  onOpenTab.mockClear();
+  onScopedOpenTab.mockClear();
 });
 
 afterEach(() => {
@@ -481,6 +522,44 @@ afterEach(() => {
 });
 
 describe("PluginPanelRightPanelHost", () => {
+  it("portals each split pane toggle into that pane's owned target", () => {
+    const paneA = { ...basePaneContext, paneId: "pane-a" };
+    const paneB = { ...basePaneContext, paneId: "pane-b" };
+    const targetA = getPluginPanelRightPanelStateId({
+      panelPath: "docs",
+      paneId: paneA.paneId,
+      pluginId: "docs",
+    });
+    const targetB = getPluginPanelRightPanelStateId({
+      panelPath: "docs",
+      paneId: paneB.paneId,
+      pluginId: "docs",
+    });
+    render(
+      <TooltipProvider>
+        <HostFixture
+          paneContext={paneA}
+          togglePortal={{ panelStateId: targetA, testId: "portal-a" }}
+        />
+        <HostFixture
+          paneContext={paneB}
+          togglePortal={{ panelStateId: targetB, testId: "portal-b" }}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(
+      within(screen.getByTestId("portal-a")).getAllByRole("button", {
+        name: "Show right panel",
+      }),
+    ).toHaveLength(1);
+    expect(
+      within(screen.getByTestId("portal-b")).getAllByRole("button", {
+        name: "Show right panel",
+      }),
+    ).toHaveLength(1);
+  });
+
   it("extends flushed panel seams through both page insets", () => {
     const view = render(<HostFixture flushPageInsets />);
     const host = view.container.firstElementChild;
@@ -498,16 +577,16 @@ describe("PluginPanelRightPanelHost", () => {
     expect(view.container.firstElementChild?.classList.contains("h-full")).toBe(
       true,
     );
-    expect(
-      view.container.firstElementChild?.classList.contains("-m-4"),
-    ).toBe(false);
+    expect(view.container.firstElementChild?.classList.contains("-m-4")).toBe(
+      false,
+    );
 
     hostState.rightPanelAvailable = true;
     view.rerender(<HostFixture flushPageInsets />);
 
-    expect(
-      view.container.firstElementChild?.classList.contains("-m-4"),
-    ).toBe(true);
+    expect(view.container.firstElementChild?.classList.contains("-m-4")).toBe(
+      true,
+    );
     expect(
       view.container.firstElementChild?.classList.contains(
         "md:h-[calc(100%+2.5rem)]",
@@ -775,6 +854,76 @@ describe("PluginPanelRightPanelHost", () => {
     });
   });
 
+  it("opens scoped Browser popups only for tabs owned by this plugin pane", () => {
+    const tab = browserTab();
+    hostState.activeBrowserTab = tab;
+    hostState.browserTabs = [tab];
+    render(<HostFixture />);
+
+    act(() => {
+      desktopBrowserApiState.onScopedOpenTab?.({
+        tabId: "foreign-browser-tab",
+        url: "https://foreign.example/popup",
+      });
+    });
+    expect(openTab).not.toHaveBeenCalled();
+
+    act(() => {
+      desktopBrowserApiState.onScopedOpenTab?.({
+        tabId: tab.id,
+        url: "https://example.com/popup",
+      });
+    });
+    expect(openTab).toHaveBeenCalledWith({
+      kind: "browser",
+      url: "https://example.com/popup",
+    });
+  });
+
+  it("falls back to legacy popups only from the focused plugin Browser host", () => {
+    hostState.desktopBrowserApiMode = "legacy";
+    const tab = browserTab();
+    hostState.activeBrowserTab = tab;
+    hostState.browserTabs = [tab];
+    render(
+      <>
+        <HostFixture
+          paneContext={{
+            ...basePaneContext,
+            paneId: "inactive",
+            isFocused: false,
+          }}
+        />
+        <HostFixture
+          paneContext={{
+            ...basePaneContext,
+            paneId: "focused",
+            isFocused: true,
+          }}
+        />
+      </>,
+    );
+
+    expect(onOpenTab).toHaveBeenCalledTimes(1);
+    act(() => {
+      for (const handler of desktopBrowserApiState.onOpenTab) {
+        handler({ url: "https://example.com/legacy-popup" });
+      }
+    });
+    expect(openTab).toHaveBeenCalledTimes(1);
+    expect(openTab).toHaveBeenCalledWith({
+      kind: "browser",
+      url: "https://example.com/legacy-popup",
+    });
+
+    act(() => {
+      for (const handler of desktopBrowserApiState.onOpenTab) {
+        handler({ url: "/plugins/docs/docs" });
+      }
+    });
+    expect(openTab).toHaveBeenCalledTimes(1);
+  });
+
   it("opens registered custom views with persisted JSON params", () => {
     render(<HostFixture />);
     fireEvent.click(screen.getByRole("button", { name: "Open View" }));
@@ -1001,6 +1150,28 @@ describe("PluginPanelRightPanelHost", () => {
 
     expect(closeTerminalMutate).not.toHaveBeenCalled();
     expect(updatePanelState).not.toHaveBeenCalled();
+  });
+
+  it("closes a restored Terminal once frontend loading settles without its plugin", async () => {
+    hostState.panelAvailable = false;
+    hostState.activeTerminalTab = {
+      id: "terminal:terminal-disabled-before-start",
+      kind: "terminal",
+      terminalId: "terminal-disabled-before-start",
+      target: { kind: "host_path", hostId: "host-1", cwd: null },
+    };
+    const view = render(<HostFixture />);
+    expect(closeTerminalMutate).not.toHaveBeenCalled();
+
+    hostState.frontendLoadState = "settled";
+    view.rerender(<HostFixture />);
+
+    await waitFor(() =>
+      expect(closeTerminalMutate).toHaveBeenCalledWith(
+        { mode: "force", terminalId: "terminal-disabled-before-start" },
+        expect.objectContaining({ onSuccess: expect.any(Function) }),
+      ),
+    );
   });
 
   it("keeps the Browser deck mounted when the final tab is removed", () => {

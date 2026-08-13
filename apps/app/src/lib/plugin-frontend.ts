@@ -39,6 +39,7 @@ import {
 import { setPluginLogoUrls, type PluginLogoUrls } from "./plugin-logos";
 import { pluginSdkAppImplementation } from "./plugin-sdk-app-impl";
 import {
+  markPluginFrontendLoadSettled,
   removePluginSlotRegistrations,
   setPluginSlotRegistrations,
   type PluginRegistrationSet,
@@ -969,6 +970,7 @@ export function bootPluginFrontends(): Promise<void> {
     installPluginRuntime();
     installPluginFrontendTeardown();
     await reconcilePluginFrontends(state, browserReconcileDeps);
+    markPluginFrontendLoadSettled();
   })().catch((error: unknown) => {
     // Inventory fetch/network failure — plugin UI is absent, app unharmed.
     console.warn(
