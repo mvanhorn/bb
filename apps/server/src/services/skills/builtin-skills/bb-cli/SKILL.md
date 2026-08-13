@@ -100,10 +100,8 @@ message agents, or inspect projects, providers, and environments.
   inspect or change these server-backed values from agents. Pass
   `bb settings usage --machine <id-or-name>` to read provider limits from a
   specific connected machine instead of the primary machine.
-- The default-off `toolsHub` experiment exposes the unified Skills, Plugins,
-  and Automations management UI. Change it with
-  `bb settings experiment toolsHub <true|false>`. It does not load or unload
-  tools.
+- Extensions provides the unified Skills and Plugins management UI, while
+  Automations stays in the Plugins section beside threads.
 - The default-off `newOnboarding` experiment exposes the first-run agent and
   project setup guide. Change it with
   `bb settings experiment newOnboarding <true|false>`. Use
@@ -148,8 +146,17 @@ message agents, or inspect projects, providers, and environments.
 - `bb skill show <skill-id> --json` returns the revision. Pass that revision,
   plus `--file`, to `bb skill update <skill-id>`. Use update or delete only when
   the list says editable.
-- Use `bb skill search [query]` for live skills.sh results. Inspect metadata and
-  the bounded file preview with `bb skill registry detail <registry-skill-id>`.
+- Use `bb skill search [query]` for live skills.sh results. With no query it
+  lists what is trending; `ranking` in the response says which leaderboard you
+  got. Install counts match the Skills browse page — lifetime totals, resolved
+  per skill on the trending ranking, where the leaderboard's own number counts
+  only a 24h window. Resolution is capped at 48 rows per page and a detail page
+  can fail to fetch, so read the two surfaces differently: the `INSTALLS`
+  column prints `—` for a row it could not resolve, while `--json` lists those
+  ids in `unresolvedInstallIds` and leaves their `installs` holding the 24h
+  figure. Every other row's `installs` is the lifetime total. Use
+  `--per-page 48` or less to avoid unresolved rows. Inspect metadata and the
+  bounded file preview with `bb skill registry detail <registry-skill-id>`.
   Install with `bb skill install <registry-skill-id>`; never infer an install
   source from a display name.
 - `bb skill install-cli-skills` copies bb's built-in CLI skills into a machine's
@@ -396,12 +403,10 @@ For review or fix pipelines, get the environment ID from
   target thread workspace.
 - Absolute paths under `BB_THREAD_STORAGE` open as thread-storage files for the
   current thread.
-- Use `bb thread pane maximize|restore|toggle|spotlight|clear-spotlight
-[thread-id]` to change a matching already-open pane in every connected BB app
-  window. `spotlight` focuses that pane and dims the others; `clear-spotlight`
-  focuses it and removes split dimming. Inside a BB thread, omit the id to use
-  `BB_THREAD_ID`. The command reports how many connected clients received the
-  ephemeral action. The SDK equivalent is
+- Use `bb thread pane maximize|restore|toggle [thread-id]` to change a matching
+  already-open pane in every connected BB app window. Inside a BB thread, omit
+  the id to use `BB_THREAD_ID`. The command reports how many connected clients
+  received the ephemeral action. The SDK equivalent is
   `sdk.threads.paneAction({ threadId, action })`.
 - Users can also toggle the focused pane from its header or with the configurable
   `pane.maximize.toggle` app command (default `Mod+Shift+E`).
@@ -719,6 +724,10 @@ them by mixing ink into canvas), the `--primary` accent, the secondary text tier
   - `bb plugin search <query> [--json]` — search the official plugins by id,
     name, description, or category; status shows installed / compatible /
     requires newer bb.
+  - `bb plugin submit [--json]` — print the link to BB's plugin marketplace intake
+    form (a public GitHub repo is required; submission happens in the browser,
+    and there is no status to poll afterwards). Give the link to the user —
+    the form asks for details only its author knows, including their email.
 - Commands:
   - `bb plugin install <src>` — official plugin name (github, docs, memory,
     tasks), HTTP(S) Git repository URL, local path, `builtin:<name>`,
@@ -760,7 +769,7 @@ them by mixing ink into canvas), the `--primary` accent, the secondary text tier
   - `bb plugin run <id> [args...]` — explicit form of a plugin's CLI command.
   - `bb plugin new <name> [--app]` — scaffold a plugin and install its npm
     dependencies (`--app` adds a frontend entry plus a typecheck-only
-    `tsconfig.json`; scaffold sets `engines.bbPluginSdk` to `^0.4.2`). The
+    `tsconfig.json`; scaffold sets `engines.bbPluginSdk` to `^0.5.0`). The
     install is best-effort and verified: if npm is missing or leaves a package
     out, it says so and prints the manual `npm install --include=dev` step
     rather than reporting success; `bb plugin build [path]` —
