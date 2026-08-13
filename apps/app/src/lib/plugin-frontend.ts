@@ -823,6 +823,9 @@ export async function reconcilePluginFrontends(
       });
     }),
   );
+  // A failed boot can recover through live reconciliation, so readiness
+  // belongs to every successful authoritative inventory pass.
+  if (!state.tornDown) markPluginFrontendLoadSettled();
 }
 
 /**
@@ -970,7 +973,6 @@ export function bootPluginFrontends(): Promise<void> {
     installPluginRuntime();
     installPluginFrontendTeardown();
     await reconcilePluginFrontends(state, browserReconcileDeps);
-    markPluginFrontendLoadSettled();
   })().catch((error: unknown) => {
     // Inventory fetch/network failure — plugin UI is absent, app unharmed.
     console.warn(
