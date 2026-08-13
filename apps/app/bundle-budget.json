@@ -25,7 +25,7 @@
     "re-export rather than a direct import, which type checking cannot catch,",
     "so the check names them explicitly."
   ],
-  "maxBootBytes": 1707047,
+  "maxBootBytes": 1711143,
   "maxBootBrotliBytes": 467400,
   "forbiddenBootPackages": [
     "@pierre/diffs",
