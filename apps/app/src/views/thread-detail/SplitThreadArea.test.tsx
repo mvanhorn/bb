@@ -1710,6 +1710,54 @@ describe("SplitThreadArea", () => {
     expect(screen.queryByTestId("split-workspace-panel-toggle")).toBeNull();
   });
 
+  it("does not remove single-pane page insets twice for plugin right panels", async () => {
+    setPluginSlotRegistrations("docs", {
+      homepageSections: [],
+      settingsSections: [],
+      navPanels: [
+        {
+          id: "docs",
+          title: "Docs",
+          icon: "FileText",
+          path: "docs",
+          component: () => <div>Docs content</div>,
+          experimental_rightPanel: {
+            defaultViewId: "navigation",
+            views: [
+              {
+                id: "navigation",
+                title: "Navigation",
+                component: () => <div>Navigation content</div>,
+              },
+            ],
+          },
+        },
+      ],
+      threadPanelActions: [],
+      pendingInteractions: [],
+      sidebarFooterActions: [],
+      fileOpeners: [],
+      messageDirectives: [],
+    });
+
+    renderSplitArea({
+      path: "/plugins/docs/docs",
+      layout: {
+        root: {
+          type: "pane",
+          paneId: "pane-docs",
+          content: docsContent,
+        },
+        focusedPaneId: "pane-docs",
+      },
+      routeContent: docsContent,
+    });
+
+    const header = (await screen.findByText("Docs")).closest("header");
+    expect(header?.parentElement?.className).not.toContain("-m-4");
+    expect(header?.parentElement?.className).not.toContain("md:-m-5");
+  });
+
   it("mounts both panes with independent, threadId-keyed drafts", async () => {
     renderSplitArea({
       path: threadPath("thr-b"),
