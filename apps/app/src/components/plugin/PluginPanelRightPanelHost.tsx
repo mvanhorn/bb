@@ -47,13 +47,17 @@ import {
   useCloseTerminal,
   useTerminals,
 } from "@/hooks/queries/thread-terminal-queries";
-import { isDesktopBrowserAvailable } from "@/lib/bb-desktop";
+import {
+  getDesktopBrowserApi,
+  isDesktopBrowserAvailable,
+} from "@/lib/bb-desktop";
 import { dispatchBrowserViewBoundsSync } from "@/lib/browser-view-bounds-sync";
 import {
   parsePersistedPluginPanelParams,
   serializePluginPanelParams,
 } from "@/lib/plugin-json-value";
 import { usePluginSlots, type PluginNavPanelSlot } from "@/lib/plugin-slots";
+import { isRoutePath } from "@/lib/route-paths";
 import { useOptionalPaneContext } from "@/views/thread-detail/PaneContext";
 import {
   getPluginPanelRightPanelStateId,
@@ -96,6 +100,22 @@ function parsePluginBrowserUrl(url: string): URL | null {
   } catch {
     return null;
   }
+}
+
+function findPluginRightPanelTogglePortal(
+  panelStateId: string,
+): HTMLElement | null {
+  for (const candidate of document.querySelectorAll<HTMLElement>(
+    "[data-plugin-right-panel-toggle-portal]",
+  )) {
+    if (
+      candidate.getAttribute("data-plugin-right-panel-toggle-portal") ===
+      panelStateId
+    ) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function normalizeTerminalTarget(
@@ -256,15 +276,14 @@ export function PluginPanelRightPanelHost({
   flushPageInsets?: boolean;
   paneId?: string;
 }) {
-  const { navPanels } = usePluginSlots();
+  const { frontendLoadState, navPanels } = usePluginSlots();
   const panel =
     navPanels.find(
       (candidate) =>
         candidate.pluginId === pluginId && candidate.path === panelPath,
     ) ?? null;
   const rightPanel = panel?.experimental_rightPanel;
-  const shouldFlushPageInsets =
-    flushPageInsets && rightPanel !== undefined;
+  const shouldFlushPageInsets = flushPageInsets && rightPanel !== undefined;
   const paneContext = useOptionalPaneContext();
   const panelStateId = getPluginPanelRightPanelStateId({
     panelPath,
@@ -362,9 +381,11 @@ export function PluginPanelRightPanelHost({
     setCompactDrawerOpen,
     updatePanelState,
   ]);
-  const togglePortalTarget = document.querySelector<HTMLElement>(
-    "[data-plugin-right-panel-toggle-portal]",
-  );
+  const [togglePortalTarget, setTogglePortalTarget] =
+    useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setTogglePortalTarget(findPluginRightPanelTogglePortal(panelStateId));
+  }, [panel, panelStateId, rightPanel]);
   const canShowWideNativeBrowserView =
     paneContext === null || !paneContext.isSplitPane || paneContext.isFocused;
   const hasObservedPanelRef = useRef(panel !== null);
@@ -378,7 +399,8 @@ export function PluginPanelRightPanelHost({
   useEffect(() => {
     const revokedTerminalTabs = panelState.secondary.tabs.flatMap((tab) =>
       tab.kind === "terminal" &&
-      ((panel === null && hasObservedPanelRef.current) ||
+      ((panel === null &&
+        (hasObservedPanelRef.current || frontendLoadState === "settled")) ||
         (panel !== null &&
           (!rightPanel?.tools?.includes("terminal") ||
             tab.target === undefined)))
@@ -417,6 +439,7 @@ export function PluginPanelRightPanelHost({
   }, [
     closeTab,
     closeTerminalMutate,
+    frontendLoadState,
     panel,
     panelState.secondary.tabs,
     rightPanel,
@@ -679,6 +702,32 @@ export function PluginPanelRightPanelHost({
     panelStateId,
     experimentalOpenRightPanel,
   );
+  const browserTabIds = useMemo(
+    () => new Set(browserTabs.map((tab) => tab.id)),
+    [browserTabs],
+  );
+  useEffect(() => {
+    const browserApi = getDesktopBrowserApi();
+    if (browserApi === null) return;
+    if (browserApi.onScopedOpenTab) {
+      return browserApi.onScopedOpenTab(({ tabId, url }) => {
+        if (browserTabIds.has(tabId)) {
+          experimentalOpenRightPanel({ kind: "browser", url });
+        }
+      });
+    }
+    if (activeBrowserTab === null || !canShowWideNativeBrowserView) return;
+    return browserApi.onOpenTab(({ url }) => {
+      if (!isRoutePath({ path: url })) {
+        experimentalOpenRightPanel({ kind: "browser", url });
+      }
+    });
+  }, [
+    activeBrowserTab,
+    browserTabIds,
+    canShowWideNativeBrowserView,
+    experimentalOpenRightPanel,
+  ]);
 
   const browserDeck = useMemo(
     () => (

@@ -77,6 +77,11 @@ export function PluginPanelHeaderActions({
   const paneContext = useOptionalPaneContext();
   const HeaderContent = panel.headerContent;
   const hasRightPanel = panel.experimental_rightPanel !== undefined;
+  const panelStateId = getPluginPanelRightPanelStateId({
+    panelPath: panel.path,
+    paneId: paneId ?? paneContext?.paneId,
+    pluginId: panel.pluginId,
+  });
   if (HeaderContent === undefined && !hasRightPanel) return null;
   return (
     <div className="flex shrink-0 items-center gap-2">
@@ -87,13 +92,7 @@ export function PluginPanelHeaderActions({
           key={`${panel.pluginId}/${panel.id}/${panel.generation}`}
           pluginId={panel.pluginId}
         >
-          <PluginRightPanelNavigationBridgeProvider
-            panelStateId={getPluginPanelRightPanelStateId({
-              panelPath: panel.path,
-              paneId: paneId ?? paneContext?.paneId,
-              pluginId: panel.pluginId,
-            })}
-          >
+          <PluginRightPanelNavigationBridgeProvider panelStateId={panelStateId}>
             <PluginContext.Provider value={panel.pluginId}>
               {/* data-bb-plugin-root: the accessory is plugin code, so the
                   plugin's @scope'd stylesheet must apply here too. */}
@@ -108,7 +107,9 @@ export function PluginPanelHeaderActions({
           </PluginRightPanelNavigationBridgeProvider>
         </HeaderContentBoundary>
       )}
-      {hasRightPanel ? <div data-plugin-right-panel-toggle-portal="" /> : null}
+      {hasRightPanel ? (
+        <div data-plugin-right-panel-toggle-portal={panelStateId} />
+      ) : null}
     </div>
   );
 }

@@ -85,6 +85,7 @@ export interface PluginMessageActionSlot
 
 /** Flattened view across plugins, ordered by plugin id (deterministic). */
 export interface PluginSlotSnapshot {
+  frontendLoadState: "loading" | "settled";
   homepageSections: readonly PluginHomepageSectionSlot[];
   settingsSections: readonly PluginSettingsSectionSlot[];
   navPanels: readonly PluginNavPanelSlot[];
@@ -101,6 +102,7 @@ export interface PluginSlotSnapshot {
 }
 
 export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
+  frontendLoadState: "loading",
   homepageSections: [],
   settingsSections: [],
   navPanels: [],
@@ -119,6 +121,7 @@ export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
 const registrationsByPluginId = new Map<string, PluginRegistrationSet>();
 const generationByPluginId = new Map<string, number>();
 const listeners = new Set<() => void>();
+let frontendLoadState: PluginSlotSnapshot["frontendLoadState"] = "loading";
 let snapshot: PluginSlotSnapshot = EMPTY_PLUGIN_SLOT_SNAPSHOT;
 
 function buildSnapshot(): PluginSlotSnapshot {
@@ -208,7 +211,7 @@ function buildSnapshot(): PluginSlotSnapshot {
       next.messageActions.push({ ...registration, pluginId, generation });
     }
   }
-  return next;
+  return { frontendLoadState, ...next };
 }
 
 function emitChange(): void {
@@ -226,6 +229,13 @@ export function setPluginSlotRegistrations(
     pluginId,
     (generationByPluginId.get(pluginId) ?? 0) + 1,
   );
+  emitChange();
+}
+
+/** Mark the first successful frontend inventory reconcile as authoritative. */
+export function markPluginFrontendLoadSettled(): void {
+  if (frontendLoadState === "settled") return;
+  frontendLoadState = "settled";
   emitChange();
 }
 
@@ -255,5 +265,6 @@ export function usePluginSlots(): PluginSlotSnapshot {
 export function resetPluginSlotStoreForTest(): void {
   registrationsByPluginId.clear();
   generationByPluginId.clear();
+  frontendLoadState = "loading";
   emitChange();
 }
