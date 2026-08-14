@@ -107,7 +107,8 @@
         "source": {
           "oneOf": [
             { "$ref": "#/$defs/npmSource" },
-            { "$ref": "#/$defs/gitSource" }
+            { "$ref": "#/$defs/gitRefSource" },
+            { "$ref": "#/$defs/gitRangeSource" }
           ]
         }
       }
@@ -138,10 +139,16 @@
         }
       }
     },
-    "gitSource": {
+    "gitSubdir": {
+      "type": "string",
+      "$comment": "Repository-relative directory; absolute paths, empty segments, .. and .git are rejected.",
+      "pattern": "^(?![A-Za-z]:)(?!/)(?!(?:[^/]+/)*(?:\\.|\\.\\.|\\.git)(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
+    },
+    "gitRefSource": {
       "type": "object",
       "additionalProperties": false,
       "required": ["git"],
+      "$comment": "One branch, tag, or commit. Mutually exclusive with the range form.",
       "properties": {
         "git": {
           "type": "object",
@@ -149,15 +156,35 @@
           "required": ["url", "ref"],
           "properties": {
             "url": { "type": "string", "pattern": "^https://" },
-            "subdir": {
-              "type": "string",
-              "$comment": "Repository-relative directory; absolute paths, empty segments, .. and .git are rejected.",
-              "pattern": "^(?![A-Za-z]:)(?!/)(?!(?:[^/]+/)*(?:\\.|\\.\\.|\\.git)(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
-            },
+            "subdir": { "$ref": "#/$defs/gitSubdir" },
             "ref": {
               "type": "string",
-              "$comment": "Must round-trip through BB's git:<url>@<ref> install syntax.",
-              "pattern": "^(?!-)(?![\\s\\S]*\\.\\.)(?![\\s\\S]*@)[\\s\\S]+$"
+              "$comment": "Must round-trip through BB's git:<url>@<ref> install syntax, so \":\" (which BB reads as a ref:/semver: selector) is rejected.",
+              "pattern": "^(?!-)(?![\\s\\S]*\\.\\.)(?![\\s\\S]*@)(?![\\s\\S]*:)[\\s\\S]+$"
+            }
+          }
+        }
+      }
+    },
+    "gitRangeSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["git"],
+      "$comment": "A semver range resolved over the repository's [tagPrefix]vX.Y.Z release tags. BB records the tag and commit it selected and refuses a tag that later points elsewhere.",
+      "properties": {
+        "git": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "range"],
+          "properties": {
+            "url": { "type": "string", "pattern": "^https://" },
+            "subdir": { "$ref": "#/$defs/gitSubdir" },
+            "range": { "type": "string", "minLength": 1 },
+            "tagPrefix": {
+              "type": "string",
+              "$comment": "Monorepo tagging: \"notes/\" matches notes/vX.Y.Z tags. Omit for repository-wide vX.Y.Z tags.",
+              "maxLength": 128,
+              "pattern": "^(?!.*\\.\\.)(?!.*//)(?!.*\\.$)[A-Za-z0-9][A-Za-z0-9._/-]*$"
             }
           }
         }

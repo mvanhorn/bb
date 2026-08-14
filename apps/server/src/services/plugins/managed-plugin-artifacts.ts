@@ -10,6 +10,7 @@ import {
   setPluginArtifactValidation,
   type InstalledPluginRow,
   type PluginExactResolution,
+  type PluginGitSelector,
   type PluginProvenance,
   type PluginSourceIntent,
 } from "@bb/db";
@@ -30,6 +31,7 @@ import {
   realPathInside,
   runInstallCommand,
 } from "./install-sources.js";
+import { gitSelectorRefName } from "./git-source-intent.js";
 import {
   derivePluginId,
   readPluginManifest,
@@ -43,10 +45,10 @@ import type { MarketplaceEngines } from "../plugin-catalog/marketplace-manifest.
 import {
   createNpmResolverRun,
   evaluateCompatibility,
+  resolveGitRange,
   resolveGitRef,
   selectNpmCandidate,
   type CompatibilityProblem,
-  type GitRefKind,
   type NpmResolvedCandidate,
   type NpmSourceIntentForResolution,
 } from "./update-resolver.js";
@@ -486,21 +488,86 @@ export function createManagedPluginArtifacts(
     }
   }
 
+  /**
+   * Decide what a `git:` spec resolves to.
+   *
+   * An implicit spec such as `1.x` reads as a semver range, but a repository
+   * can also name a branch `1.x`. Classification decides: with no ref of that
+   * name the spec is a range; with one, the install stops and asks the user to
+   * choose. bb does not guess, because each answer installs different code.
+   */
+  async function resolveGitSelector(
+    parsed: Extract<ReturnType<typeof parsePluginSource>, { kind: "git" }>,
+  ): Promise<{ selector: PluginGitSelector; commit: string }> {
+    const { selector } = parsed;
+    if (selector.kind !== "range") {
+      const literal = await resolveGitRef({
+        url: parsed.url,
+        ref: selector.ref,
+      });
+      if (selector.kind === "ref") {
+        if (literal.outcome === "unavailable") {
+          throw new Error(`install failed: ${literal.detail}`);
+        }
+        return {
+          selector: {
+            kind: "ref",
+            ref: selector.ref,
+            refKind: literal.refKind,
+          },
+          commit: literal.commit,
+        };
+      }
+      if (literal.outcome === "resolved") {
+        throw new Error(
+          `install refused: "${selector.ref}" is both a semver range and a ${literal.refKind} of ${parsed.url}. ` +
+            `Install \`git:${parsed.url}@ref:${selector.ref}\` for the ${literal.refKind}, or ` +
+            `\`git:${parsed.url}@semver:${selector.range}\` to resolve the range over release tags`,
+        );
+      }
+      return resolveGitRangeSelector({
+        url: parsed.url,
+        range: selector.range,
+        tagPrefix: "",
+      });
+    }
+    return resolveGitRangeSelector({
+      url: parsed.url,
+      range: selector.range,
+      tagPrefix: selector.tagPrefix,
+    });
+  }
+
+  async function resolveGitRangeSelector(args: {
+    url: string;
+    range: string;
+    tagPrefix: string;
+  }): Promise<{ selector: PluginGitSelector; commit: string }> {
+    const resolved = await resolveGitRange(args);
+    if (resolved.outcome === "unavailable") {
+      throw new Error(`install failed: ${resolved.detail}`);
+    }
+    return {
+      selector: {
+        kind: "range",
+        range: args.range,
+        tagPrefix: args.tagPrefix,
+        resolvedTag: resolved.tag,
+      },
+      commit: resolved.commit,
+    };
+  }
+
   async function installGitSource(
     parsed: Extract<ReturnType<typeof parsePluginSource>, { kind: "git" }>,
     source: string,
     selection: PluginSourceSelection,
     context: InstallContext = directInstallContext,
   ): Promise<PluginListEntry> {
-    const resolution = await resolveGitRef({
-      url: parsed.url,
-      ref: parsed.ref,
-    });
-    if (resolution.outcome === "unavailable") {
-      throw new Error(`install failed: ${resolution.detail}`);
-    }
+    const resolution = await resolveGitSelector(parsed);
     const resolvedCommit = resolution.commit;
-    const resolvedRefKind = resolution.refKind;
+    const resolvedSelector = resolution.selector;
+    const checkoutRef = gitSelectorRefName(resolvedSelector);
     function identityFor(
       subdirectory: string | null,
     ): InstallRegistrationIdentity {
@@ -510,8 +577,7 @@ export function createManagedPluginArtifacts(
           kind: "git",
           url: parsed.url,
           subdirectory,
-          requestedRef: parsed.ref,
-          refKind: resolvedRefKind,
+          selector: resolvedSelector,
         },
       };
     }
@@ -644,7 +710,7 @@ export function createManagedPluginArtifacts(
         ]);
         if (!checkedOutCommit.startsWith(resolvedCommit)) {
           throw new Error(
-            `git resolved ${parsed.ref} to ${resolvedCommit}, but checked out ${checkedOutCommit}`,
+            `git resolved ${checkoutRef} to ${resolvedCommit}, but checked out ${checkedOutCommit}`,
           );
         }
         await validateInstallDir({
@@ -945,7 +1011,12 @@ export function createManagedPluginArtifacts(
     row: InstalledPluginRow;
     commit: string;
     promote: boolean;
-    activationRefKind?: GitRefKind;
+    /**
+     * Source intent to persist when the candidate activates. A range install
+     * records the tag this commit came from, so it must be the tag the update
+     * resolved, not the one the row still holds.
+     */
+    activationSelector?: PluginGitSelector;
     artifactLocked?: boolean;
   }): Promise<
     | {
@@ -969,9 +1040,8 @@ export function createManagedPluginArtifacts(
         `plugin "${args.row.id}" has corrupt normalized git state`,
       );
     }
-    const cacheSource = parsePluginSource(
-      `git:${args.row.sourceGitUrl}@${args.commit}`,
-    );
+    const url = args.row.sourceGitUrl;
+    const cacheSource = parsePluginSource(`git:${url}@${args.commit}`);
     if (cacheSource.kind !== "git") {
       throw new Error(`plugin "${args.row.id}" has corrupt git source`);
     }
@@ -1012,10 +1082,7 @@ export function createManagedPluginArtifacts(
         sdkRange: manifest.bbPluginSdkRange,
         appVersion: deps.appVersion,
       });
-      if (args.activationRefKind === undefined) {
-        throw new Error(`plugin "${args.row.id}" update lacks git ref kind`);
-      }
-      if (args.row.sourceGitRequestedRef === null) {
+      if (args.activationSelector === undefined) {
         throw new Error(`plugin "${args.row.id}" update lacks git intent`);
       }
       if (existingArtifact.validationResult === "pending") {
@@ -1032,10 +1099,9 @@ export function createManagedPluginArtifacts(
         source: args.row.source,
         sourceIntent: {
           kind: "git",
-          url: args.row.sourceGitUrl,
+          url,
           subdirectory: args.row.sourceGitSubdirectory,
-          requestedRef: args.row.sourceGitRequestedRef,
-          refKind: args.activationRefKind,
+          selector: args.activationSelector,
         },
         exactResolution: { kind: "git", commit: args.commit },
         artifactId: existingArtifact.id,
@@ -1059,14 +1125,10 @@ export function createManagedPluginArtifacts(
     await mkdir(dirname(stagingDir), { recursive: true });
     try {
       deps.onArtifactMaterialize?.({ path: targetRoot });
-      await runInstallCommand(
-        "git",
-        ["clone", "--quiet", args.row.sourceGitUrl, stagingDir],
-        {
-          notFoundHint:
-            '"git" was not found on PATH — git plugin updates require git',
-        },
-      );
+      await runInstallCommand("git", ["clone", "--quiet", url, stagingDir], {
+        notFoundHint:
+          '"git" was not found on PATH — git plugin updates require git',
+      });
       await runInstallCommand("git", [
         "-C",
         stagingDir,
@@ -1137,12 +1199,10 @@ export function createManagedPluginArtifacts(
       }
       let artifactId: string | null = null;
       if (args.promote) {
-        if (
-          args.activationRefKind === undefined ||
-          args.row.sourceGitRequestedRef === null
-        ) {
+        if (args.activationSelector === undefined) {
           throw new Error(`plugin "${args.row.id}" update lacks git intent`);
         }
+        const activationSelector = args.activationSelector;
         const contentHash = await hashInstallDir(realPluginRoot);
         const artifact =
           existingArtifact ??
@@ -1172,10 +1232,9 @@ export function createManagedPluginArtifacts(
           source: args.row.source,
           sourceIntent: {
             kind: "git",
-            url: args.row.sourceGitUrl,
+            url,
             subdirectory: args.row.sourceGitSubdirectory,
-            requestedRef: args.row.sourceGitRequestedRef,
-            refKind: args.activationRefKind,
+            selector: activationSelector,
           },
           exactResolution: { kind: "git", commit: args.commit },
           artifactId: artifact.id,
