@@ -179,6 +179,11 @@ interface MigratedPluginCatalogProvenanceRow {
   catalogEntryId: string | null;
 }
 
+interface MigratedNamedCatalogProvenanceRow {
+  id: string;
+  catalogMarketplaceName: string | null;
+}
+
 interface MigratedPluginCatalogRow {
   catalogJson: string;
   lastAttemptedRefreshAt: number | null;
@@ -427,6 +432,12 @@ const retireRequestedAtMigrationPath = resolve(
   "..",
   "drizzle",
   "0091_daffy_dark_phoenix.sql",
+);
+const namedMarketplaceCatalogMigrationPath = resolve(
+  __dirname,
+  "..",
+  "drizzle",
+  "0094_dazzling_vin_gonzales.sql",
 );
 const sidebarOrderingMigrationPath = resolve(
   __dirname,
@@ -4487,6 +4498,47 @@ describe("migrate", () => {
           >("SELECT COUNT(*) AS count FROM plugin_catalog")
           .get(),
       ).toEqual({ count: 0 });
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("names only catalog provenance during the marketplace upgrade", () => {
+    const db = createConnection(":memory:");
+    try {
+      db.$client.exec(`
+        CREATE TABLE plugins (
+          id text PRIMARY KEY NOT NULL,
+          provenance text NOT NULL,
+          catalog_entry_id text
+        );
+        INSERT INTO plugins VALUES
+          ('catalog-plugin', 'catalog', 'catalog-entry'),
+          ('direct-plugin', 'direct', NULL),
+          ('builtin-plugin', 'builtin', NULL);
+      `);
+
+      runMigrationFile({
+        db,
+        migrationPath: namedMarketplaceCatalogMigrationPath,
+      });
+
+      expect(
+        db.$client
+          .prepare<[], MigratedNamedCatalogProvenanceRow>(
+            `
+              SELECT id,
+                catalog_marketplace_name AS catalogMarketplaceName
+              FROM plugins
+              ORDER BY id
+            `,
+          )
+          .all(),
+      ).toEqual([
+        { id: "builtin-plugin", catalogMarketplaceName: null },
+        { id: "catalog-plugin", catalogMarketplaceName: "bb-official" },
+        { id: "direct-plugin", catalogMarketplaceName: null },
+      ]);
     } finally {
       closeConnection(db);
     }
