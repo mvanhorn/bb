@@ -652,8 +652,7 @@ type InstallIntent =
   | { kind: "catalog"; plan: PluginCatalogInstallPlan };
 
 /** `<entry-id>@<marketplace>`, both lowercase kebab-case. */
-const QUALIFIED_ENTRY_PATTERN =
-  /^([a-z0-9][a-z0-9-]*)@([a-z0-9][a-z0-9-]*)$/u;
+const QUALIFIED_ENTRY_PATTERN = /^([a-z0-9][a-z0-9-]*)@([a-z0-9][a-z0-9-]*)$/u;
 
 function installPlan(
   baseUrl: string,
@@ -714,7 +713,10 @@ async function resolveInstallIntent(
     // the bundled plugin of that name, or refuses an id several marketplaces
     // list. Asking it here is what makes the confirmation show the real plan.
     if (listed) {
-      return { kind: "catalog", plan: await installPlan(baseUrl, { entryId: input }) };
+      return {
+        kind: "catalog",
+        plan: await installPlan(baseUrl, { entryId: input }),
+      };
     }
   }
   if (!(await existsOnDisk(input)))
@@ -926,9 +928,7 @@ export function registerPluginCommands(
                 ...(showMarketplace ? ["Marketplace"] : []),
                 "Status",
               ],
-              colWidths: showMarketplace
-                ? [26, 42, 22, 40]
-                : [28, 54, 48],
+              colWidths: showMarketplace ? [26, 42, 22, 40] : [28, 54, 48],
               trimTrailingWhitespace: true,
             },
             rows,
@@ -1152,6 +1152,9 @@ export function registerPluginCommands(
                     ? {
                         entryId: intent.plan.entryId,
                         marketplace: intent.plan.marketplace,
+                        ...(intent.plan.official
+                          ? {}
+                          : { confirmedSource: intent.plan.resolvedSource }),
                       }
                     : { entryId: intent.plan.entryId },
                 );
