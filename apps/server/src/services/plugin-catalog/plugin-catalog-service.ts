@@ -1,3 +1,4 @@
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   deletePluginMarketplace,
@@ -182,6 +183,18 @@ export function createPluginCatalogService(deps: {
       return () => clearTimeout(timer);
     });
   const stagingDir = join(deps.dataDir, "marketplaces", "staging");
+  let stagingReady: Promise<void> | null = null;
+
+  function prepareMarketplaceStaging(): Promise<void> {
+    if (stagingReady === null) {
+      stagingReady = rm(stagingDir, { recursive: true, force: true }).then(
+        async () => {
+          await mkdir(stagingDir, { recursive: true });
+        },
+      );
+    }
+    return stagingReady;
+  }
 
   seedOfficialMarketplace();
 
@@ -419,6 +432,7 @@ export function createPluginCatalogService(deps: {
     attemptedAt: number,
   ): Promise<void> {
     const source = marketplaceSourceFromRow(row);
+    if (source.kind === "git") await prepareMarketplaceStaging();
     const materialized = await materializeMarketplace({
       source,
       cached: {
@@ -777,6 +791,7 @@ export function createPluginCatalogService(deps: {
     async addMarketplace(rawSource) {
       return withLock(ADD_LOCK_KEY, async () => {
         const source = parseMarketplaceSource(rawSource);
+        if (source.kind === "git") await prepareMarketplaceStaging();
         const materialized = await materializeMarketplace({
           source,
           cached: null,
