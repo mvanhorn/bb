@@ -179,6 +179,7 @@ async function installNpmCandidate(args: {
       "--no-fund",
       "--registry",
       args.registry,
+      "--",
       `${args.packageName}@${args.candidate.version}`,
     ],
     { notFoundHint: args.notFoundHint },
