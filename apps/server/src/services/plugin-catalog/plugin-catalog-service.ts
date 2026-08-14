@@ -426,7 +426,7 @@ export function createPluginCatalogService(deps: {
       official,
       author: entryAuthor(entry),
       installed:
-        args.installedEntryIds.has(`${row.name} ${entry.id}`) ||
+        args.installedEntryIds.has(catalogEntryKey(row.name, entry.id)) ||
         getInstalledPlugin(deps.db, entry.id) !== undefined,
       compatible: problem === null,
       incompatibleReason: problem,
@@ -918,11 +918,18 @@ export function createPluginCatalogService(deps: {
       const installedEntryIds = new Set(
         listInstalledPlugins(deps.db)
           .filter(
-            (row): row is typeof row & { catalogEntryId: string } =>
+            (
+              row,
+            ): row is typeof row & {
+              catalogEntryId: string;
+              catalogMarketplaceName: string;
+            } =>
               row.catalogMarketplaceName !== null &&
               row.catalogEntryId !== null,
           )
-          .map((row) => `${row.catalogMarketplaceName} ${row.catalogEntryId}`),
+          .map((row) =>
+            catalogEntryKey(row.catalogMarketplaceName, row.catalogEntryId),
+          ),
       );
       const catalogEntries = orderedMarketplaces().flatMap((row, index) => {
         const catalog = catalogOf(row);
@@ -1069,6 +1076,11 @@ export function createPluginCatalogService(deps: {
       cancelPeriodic = null;
     },
   };
+}
+
+/** Collision-free key for an entry within one marketplace. */
+function catalogEntryKey(marketplace: string, entryId: string): string {
+  return `${marketplace}\u0000${entryId}`;
 }
 
 /** Display author of an entry, linking to its own URL or GitHub profile. */
