@@ -6357,6 +6357,7 @@ declare const installedPluginSchema: z$1.ZodObject<{
     }>;
     isOrphanedBuiltin: z$1.ZodBoolean;
     catalogEntryId: z$1.ZodOptional<z$1.ZodString>;
+    catalogMarketplaceName: z$1.ZodOptional<z$1.ZodString>;
     sourceDisplay: z$1.ZodString;
     updateState: z$1.ZodObject<{
         outcome: z$1.ZodOptional<z$1.ZodEnum<{
@@ -6461,6 +6462,7 @@ declare const pluginListResponseSchema: z$1.ZodObject<{
         }>;
         isOrphanedBuiltin: z$1.ZodBoolean;
         catalogEntryId: z$1.ZodOptional<z$1.ZodString>;
+        catalogMarketplaceName: z$1.ZodOptional<z$1.ZodString>;
         sourceDisplay: z$1.ZodString;
         updateState: z$1.ZodObject<{
             outcome: z$1.ZodOptional<z$1.ZodEnum<{
@@ -6567,6 +6569,7 @@ declare const pluginReloadResponseSchema: z$1.ZodObject<{
         }>;
         isOrphanedBuiltin: z$1.ZodBoolean;
         catalogEntryId: z$1.ZodOptional<z$1.ZodString>;
+        catalogMarketplaceName: z$1.ZodOptional<z$1.ZodString>;
         sourceDisplay: z$1.ZodString;
         updateState: z$1.ZodObject<{
             outcome: z$1.ZodOptional<z$1.ZodEnum<{
@@ -6708,6 +6711,7 @@ declare const pluginCatalogSearchResultSchema: z$1.ZodObject<{
     displayName: z$1.ZodString;
     description: z$1.ZodString;
     icon: z$1.ZodNullable<z$1.ZodString>;
+    iconUrl: z$1.ZodNullable<z$1.ZodString>;
     category: z$1.ZodString;
     source: z$1.ZodString;
     installed: z$1.ZodBoolean;

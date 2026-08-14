@@ -156,6 +156,7 @@ export interface PluginCatalogSearchEntry {
   displayName: string;
   description: string;
   icon: string | null;
+  iconUrl: string | null;
   category: string;
   source: string;
   installed: boolean;
@@ -172,6 +173,7 @@ function toPluginCatalogSearchEntry(
     displayName: data.displayName,
     description: data.description,
     icon: data.icon,
+    iconUrl: data.iconUrl,
     category: data.category,
     source: data.source,
     installed: data.installed,

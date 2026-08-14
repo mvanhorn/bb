@@ -564,6 +564,7 @@ const UNINSTALLED_CATALOG_PLUGIN = {
   displayName: "GitHub",
   description: "Browse GitHub issues and pull requests without leaving bb.",
   icon: "Github",
+  iconUrl: null,
   category: "Developer tools",
   source: "builtin:github",
   installed: false,
