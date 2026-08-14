@@ -219,6 +219,7 @@ export {
   getPluginMarketplace,
   getPluginMarketplaceIcon,
   listPluginMarketplaceIcons,
+  replacePluginMarketplaceIcons,
   recordPluginMarketplaceRefreshFailure,
   upsertPluginMarketplace,
   upsertPluginMarketplaceIcon,
