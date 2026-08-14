@@ -297,14 +297,19 @@ vi.mock("@/components/secondary-panel/ThreadSecondaryPanel", async () => {
       browserDeck,
       fileTabContent,
       onClose,
+      topChromeSurface,
     }: {
       browserDeck: React.ReactNode;
       fileTabContent: React.ReactNode;
       onClose: () => void;
+      topChromeSurface?: "panel" | "page";
     }) =>
       React.createElement(
         "div",
-        null,
+        {
+          "data-testid": "thread-secondary-panel",
+          "data-top-chrome-surface": topChromeSurface ?? "panel",
+        },
         browserDeck,
         fileTabContent,
         React.createElement(
@@ -522,6 +527,23 @@ afterEach(() => {
 });
 
 describe("PluginPanelRightPanelHost", () => {
+  it("uses the sidebar surface for plugin right-panel chrome", async () => {
+    hostState.activePluginPanelTab = {
+      actionId: "navigation",
+      id: "plugin-panel:docs:navigation:null",
+      kind: "plugin-panel",
+      paramsJson: null,
+      pluginId: "docs",
+      title: "Navigation",
+    };
+    render(<HostFixture />);
+
+    expect(
+      (await screen.findByTestId("thread-secondary-panel")).dataset
+        .topChromeSurface,
+    ).toBe("panel");
+  });
+
   it("portals each split pane toggle into that pane's owned target", () => {
     const paneA = { ...basePaneContext, paneId: "pane-a" };
     const paneB = { ...basePaneContext, paneId: "pane-b" };
