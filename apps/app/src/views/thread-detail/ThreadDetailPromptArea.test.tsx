@@ -18,7 +18,10 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import type { TimelineWorkflowWorkRow } from "@bb/server-contract";
+import type {
+  ExistingThreadExecutionInputSources,
+  TimelineWorkflowWorkRow,
+} from "@bb/server-contract";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { workflowRow } from "@/test/fixtures/thread-timeline-rows";
@@ -42,7 +45,9 @@ const mocks = vi.hoisted(() => ({
   createQueuedMessageMutateAsync: vi.fn(),
   defaultExecutionOptions: null as ResolvedThreadExecutionOptions | null,
   deleteQueuedMessageMutateAsync: vi.fn(),
+  executionInputSources: {} as ExistingThreadExecutionInputSources,
   navigate: vi.fn(),
+  permissionMode: "auto",
   pluginComposerHost: null as PluginComposerHost | null,
   promptDraft: {
     addAttachment: vi.fn(),
@@ -59,7 +64,11 @@ const mocks = vi.hoisted(() => ({
   },
   queuedMessages: [] as ThreadQueuedMessage[],
   reorderQueuedMessageMutateAsync: vi.fn(),
+  reasoningLevel: "medium",
+  selectedModel: "gpt-5",
+  sendMessageMutateAsync: vi.fn(),
   sendQueuedMessageMutateAsync: vi.fn(),
+  serviceTier: undefined as "default" | "fast" | undefined,
   setQueuedMessageGroupBoundaryMutateAsync: vi.fn(),
   stopThreadMutate: vi.fn(),
   toastError: vi.fn(),
@@ -70,6 +79,7 @@ const mocks = vi.hoisted(() => ({
   useThreadCreationOptions: vi.fn(),
   useThreadPromptHistory: vi.fn(),
   useThreadQueuedMessages: vi.fn(),
+  supportsServiceTier: false,
 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -106,6 +116,7 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
       composer: {
         message: string;
         onChangeMessage: (message: string, mentions: []) => void;
+        onModifierSubmit?: () => void;
         onSubmit: () => void;
         submitTitle?: string;
         submitMode: { kind: string; reason?: string };
@@ -248,6 +259,9 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
             />
             <button type="button" onClick={composer.onSubmit}>
               Submit composer
+            </button>
+            <button type="button" onClick={composer.onModifierSubmit}>
+              Modifier submit composer
             </button>
             <button
               type="button"
@@ -446,30 +460,30 @@ vi.mock("@/hooks/useThreadCreationOptions", () => ({
     mocks.useThreadCreationOptions(options);
     return {
       activeModel: null,
-      executionInputSources: {},
+      executionInputSources: mocks.executionInputSources,
       hasMultipleProviders: false,
       isLoadingModels: false,
       modelLoadError: null,
       modelLoadFailed: false,
       modelOptions: [],
       moreModelOptions: [],
-      permissionMode: "auto",
+      permissionMode: mocks.permissionMode,
       permissionModeOptions: [],
       providerOptions: [],
-      reasoningLevel: "medium",
+      reasoningLevel: mocks.reasoningLevel,
       reasoningOptions: [],
-      selectedModel: "gpt-5",
+      selectedModel: mocks.selectedModel,
       selectedProviderComposerActions: [],
       selectedProviderDisplayName: "Codex",
       selectedProviderId: "codex",
-      serviceTier: undefined,
+      serviceTier: mocks.serviceTier,
       serviceTierSupportByProvider: {},
       setPermissionMode: vi.fn(),
       setReasoningLevel: vi.fn(),
       setSelectedModel: vi.fn(),
       setServiceTier: vi.fn(),
       supportsPermissionModeSelection: true,
-      supportsServiceTier: false,
+      supportsServiceTier: mocks.supportsServiceTier,
     };
   },
 }));
@@ -710,7 +724,7 @@ function buildPromptAreaElement({
       resolveMentionLink={() => null}
       sendMessage={{
         isPending: false,
-        mutateAsync: vi.fn(),
+        mutateAsync: mocks.sendMessageMutateAsync,
       }}
       sentMessageEdit={sentMessageEdit}
       steerActiveThreadOnEnter={false}
@@ -737,6 +751,8 @@ function deferred<T>() {
 
 beforeEach(() => {
   mocks.defaultExecutionOptions = null;
+  mocks.executionInputSources = {};
+  mocks.permissionMode = "auto";
   mocks.pluginComposerHost = null;
   mocks.promptDraft.text = "";
   mocks.promptDraft.getCurrent.mockImplementation(() => ({
@@ -745,6 +761,11 @@ beforeEach(() => {
     text: mocks.promptDraft.text,
   }));
   mocks.queuedMessages = [];
+  mocks.reasoningLevel = "medium";
+  mocks.selectedModel = "gpt-5";
+  mocks.sendMessageMutateAsync.mockReset().mockResolvedValue({});
+  mocks.serviceTier = undefined;
+  mocks.supportsServiceTier = false;
   mocks.updateQueuedMessageMutateAsync.mockResolvedValue(undefined);
   mocks.useThreadCreationOptions.mockClear();
   mocks.useThreadDefaultExecutionOptions.mockClear();
@@ -762,6 +783,87 @@ afterEach(() => {
 });
 
 describe("ThreadDetailPromptArea", () => {
+  it("uses the selected execution options for an active-thread modifier steer", async () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "auto",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.executionInputSources = {
+      model: "explicit",
+      permissionMode: "explicit",
+      reasoningLevel: "explicit",
+      serviceTier: "explicit",
+    };
+    mocks.permissionMode = "full";
+    mocks.promptDraft.text = "Steer with new options";
+    mocks.reasoningLevel = "high";
+    mocks.selectedModel = "gpt-5.1";
+    mocks.serviceTier = "fast";
+    mocks.supportsServiceTier = true;
+
+    renderPromptArea({
+      thread: makeThread({
+        runtime: { displayStatus: "active" },
+        status: "active",
+      }),
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Modifier submit composer" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.sendMessageMutateAsync).toHaveBeenCalledWith({
+        id: "thr_1",
+        input: [{ type: "text", text: "Steer with new options", mentions: [] }],
+        mode: "steer-if-active",
+        model: "gpt-5.1",
+        permissionMode: "full",
+        reasoningLevel: "high",
+        serviceTier: "fast",
+        executionInputSources: {
+          model: "explicit",
+          permissionMode: "explicit",
+          reasoningLevel: "explicit",
+          serviceTier: "explicit",
+        },
+      });
+    });
+  });
+
+  it("restores a modifier-submitted draft when the steer fails", async () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "auto",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.promptDraft.text = "Restore failed steer";
+    mocks.sendMessageMutateAsync.mockRejectedValue(new Error("send failed"));
+
+    renderPromptArea({
+      thread: makeThread({
+        runtime: { displayStatus: "active" },
+        status: "active",
+      }),
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Modifier submit composer" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.promptDraft.restoreIfEmpty).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "Restore failed steer" }),
+      );
+      expect(mocks.toastError).toHaveBeenCalledWith("send failed");
+    });
+  });
+
   it("keeps sent-message edit submission out of the normal send path", () => {
     mocks.defaultExecutionOptions = {
       model: "gpt-5",

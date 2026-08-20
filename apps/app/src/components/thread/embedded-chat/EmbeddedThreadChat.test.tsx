@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   }>,
   queuedMessages: [] as Array<{ id: string }>,
   readTrackingThreads: [] as Array<unknown>,
+  reasoningLevel: "medium",
+  selectedModel: "gpt-5",
   sendThreadMessageMutateAsync: vi.fn(),
   threadRuntimeDisplayStatus: "idle" as string,
   // Stands in for the realtime-updated timeline query cache: rows appended here
@@ -36,7 +38,7 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", () => ({
   }: {
     composer: Pick<
       FollowUpComposerProps,
-      "message" | "onChangeMessage" | "onSubmit"
+      "message" | "onChangeMessage" | "onModifierSubmit" | "onSubmit"
     >;
     stack: ReactNode;
   }) => (
@@ -49,6 +51,9 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", () => ({
       />
       <button type="button" onClick={composer.onSubmit}>
         Send
+      </button>
+      <button type="button" onClick={composer.onModifierSubmit}>
+        Modifier send
       </button>
     </div>
   ),
@@ -123,15 +128,15 @@ vi.mock("@/hooks/useThreadCreationOptions", () => ({
     hasMultipleProviders: false,
     selectedProviderDisplayName: "Provider",
     selectedProviderComposerActions: [],
-    selectedModel: "gpt-5",
+    selectedModel: mocks.selectedModel,
     setSelectedModel: vi.fn(),
     serviceTier: undefined,
     setServiceTier: vi.fn(),
-    reasoningLevel: "medium",
+    reasoningLevel: mocks.reasoningLevel,
     setReasoningLevel: vi.fn(),
     permissionMode: "auto",
     setPermissionMode: vi.fn(),
-    activeModel: { model: "gpt-5" },
+    activeModel: { model: mocks.selectedModel },
     modelOptions: [],
     moreModelOptions: [],
     modelLoadFailed: false,
@@ -321,6 +326,8 @@ describe("EmbeddedThreadChat", () => {
     mocks.pendingInteractions = [];
     mocks.queuedMessages = [];
     mocks.readTrackingThreads = [];
+    mocks.reasoningLevel = "medium";
+    mocks.selectedModel = "gpt-5";
     mocks.threadRuntimeDisplayStatus = "idle";
     mocks.timelineRows = [];
     mocks.injectedTimelineProps = [];
@@ -435,6 +442,29 @@ describe("EmbeddedThreadChat", () => {
     expect(
       screen.getByTestId<HTMLInputElement>("embedded-chat-composer").value,
     ).toBe("");
+  });
+
+  it("uses current execution fields for an active-thread modifier steer", async () => {
+    mocks.threadRuntimeDisplayStatus = "active";
+    mocks.selectedModel = "gpt-5.1";
+    mocks.reasoningLevel = "high";
+    renderEmbeddedChat();
+    fireEvent.change(screen.getByTestId("embedded-chat-composer"), {
+      target: { value: "Steer with new options" },
+    });
+    fireEvent.click(screen.getByText("Modifier send"));
+
+    await vi.waitFor(() => {
+      expect(mocks.sendThreadMessageMutateAsync).toHaveBeenCalledWith({
+        id: "thr_child",
+        input: [{ type: "text", text: "Steer with new options", mentions: [] }],
+        mode: "steer-if-active",
+        model: "gpt-5.1",
+        permissionMode: "auto",
+        reasoningLevel: "high",
+      });
+    });
+    expect(mocks.createQueuedMessageMutateAsync).not.toHaveBeenCalled();
   });
 
   it("sends directly when the thread runtime is idle", async () => {

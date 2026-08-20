@@ -19,8 +19,49 @@ describe("threadDetailPromptSubmission", () => {
   it("prioritizes current prompt input over queued messages for the follow-up shortcut", () => {
     expect(
       buildFollowUpShortcutRequest({
+        execution: {
+          model: "gpt-5.1",
+          permissionMode: "full",
+          reasoningLevel: "high",
+          serviceTier: "fast",
+          supportsServiceTier: true,
+          executionInputSources: {
+            model: "explicit",
+            permissionMode: "explicit",
+            reasoningLevel: "explicit",
+            serviceTier: "explicit",
+          },
+        },
         input: textInput,
         queuedMessages: [{ id: "queued-1" }, { id: "queued-2" }],
+        threadId: "thread-1",
+      }),
+    ).toEqual({
+      kind: "draft",
+      request: {
+        id: "thread-1",
+        input: textInput,
+        mode: "steer-if-active",
+        model: "gpt-5.1",
+        permissionMode: "full",
+        reasoningLevel: "high",
+        serviceTier: "fast",
+        executionInputSources: {
+          model: "explicit",
+          permissionMode: "explicit",
+          reasoningLevel: "explicit",
+          serviceTier: "explicit",
+        },
+      },
+    });
+  });
+
+  it("omits execution overrides from a draft shortcut without concrete defaults", () => {
+    expect(
+      buildFollowUpShortcutRequest({
+        execution: null,
+        input: textInput,
+        queuedMessages: [],
         threadId: "thread-1",
       }),
     ).toEqual({
@@ -36,6 +77,7 @@ describe("threadDetailPromptSubmission", () => {
   it("uses only the next queued message for an empty follow-up shortcut", () => {
     expect(
       buildFollowUpShortcutRequest({
+        execution: null,
         input: [],
         queuedMessages: [{ id: "queued-1" }, { id: "queued-2" }],
         threadId: "thread-1",
@@ -53,6 +95,7 @@ describe("threadDetailPromptSubmission", () => {
   it("does not build an empty follow-up shortcut without queued messages", () => {
     expect(
       buildFollowUpShortcutRequest({
+        execution: null,
         input: [],
         queuedMessages: [],
         threadId: "thread-1",

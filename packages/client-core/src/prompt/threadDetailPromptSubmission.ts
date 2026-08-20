@@ -65,7 +65,12 @@ export interface BuildSendQueuedMessageByIdRequestArgs {
 }
 
 export interface BuildFollowUpShortcutRequestArgs extends BaseFollowUpRequestArgs {
+  execution: FollowUpExecutionSelection;
   queuedMessages: readonly QueuedMessageForSend[];
+}
+
+interface BuildSteerFollowUpRequestArgs extends BaseFollowUpRequestArgs {
+  execution: FollowUpExecutionSelection;
 }
 
 export interface CanSubmitFollowUpShortcutArgs {
@@ -222,9 +227,10 @@ export function buildAutoFollowUpRequest({
 }
 
 function buildSteerFollowUpRequest({
+  execution,
   input,
   threadId,
-}: BaseFollowUpRequestArgs): SendMessageMutationRequest | null {
+}: BuildSteerFollowUpRequestArgs): SendMessageMutationRequest | null {
   if (input.length === 0) {
     return null;
   }
@@ -233,6 +239,7 @@ function buildSteerFollowUpRequest({
     id: threadId,
     input,
     mode: "steer-if-active",
+    ...buildSharedThreadExecutionRequestFields(execution),
   };
 }
 
@@ -269,11 +276,16 @@ export function buildSendQueuedMessageByIdRequest({
  * head through the same auto path as the queued-card "Send now" action.
  */
 export function buildFollowUpShortcutRequest({
+  execution,
   input,
   queuedMessages,
   threadId,
 }: BuildFollowUpShortcutRequestArgs): FollowUpShortcutRequest | null {
-  const draftRequest = buildSteerFollowUpRequest({ input, threadId });
+  const draftRequest = buildSteerFollowUpRequest({
+    execution,
+    input,
+    threadId,
+  });
   if (draftRequest) {
     return { kind: "draft", request: draftRequest };
   }
