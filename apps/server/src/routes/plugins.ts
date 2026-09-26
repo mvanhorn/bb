@@ -250,6 +250,22 @@ function notRunningError(
   return `plugin "${id}" is not running (status: ${lookup.status}${detail})`;
 }
 
+// Disablement outlives this process's resolved provider configuration.
+// Respond 410 with no-store so the client stops and a later turn can see
+// the plugin as soon as it is enabled again.
+function disabledPluginHttpResponse(context: Context, id: string): Response {
+  context.header("Cache-Control", "no-store");
+  return context.json(
+    {
+      ok: false,
+      error:
+        `plugin "${id}" is disabled — retry the turn to resolve its ` +
+        "provider configuration again",
+    },
+    410,
+  );
+}
+
 function pluginWebSocket(socket: WSContext): ExperimentalPluginWebSocket {
   return {
     send(data) {
@@ -861,6 +877,9 @@ export function registerPluginRoutes(
       return context.json({ ok: false, error: `unknown plugin "${id}"` }, 404);
     }
     if (lookup.outcome === "not-running") {
+      if (lookup.status === "disabled") {
+        return disabledPluginHttpResponse(context, id);
+      }
       return context.json(
         { ok: false, error: notRunningError(id, lookup) },
         503,
@@ -886,6 +905,9 @@ export function registerPluginRoutes(
       return context.json({ ok: false, error: problem.error }, problem.status);
     }
     const fresh = plugins.getHttpRoute(id, context.req.method, subPath);
+    if (fresh.outcome === "not-running" && fresh.status === "disabled") {
+      return disabledPluginHttpResponse(context, id);
+    }
     if (fresh.outcome !== "found" || fresh.value.auth !== auth) {
       return context.json(
         {

@@ -39,9 +39,19 @@ const WIRE_SOURCE = `
       c.json({ echoed: await c.req.json() }));
     bb.http.route("POST", "/socket", async (c: any) =>
       c.json({ http: await c.req.json() }));
-    bb.http.route("GET", "/guarded", (c: any) => c.json({ guarded: true }), {
+    bb.http.route("GET", "/guarded", (c: any) => {
+      const calls = globalThis as any;
+      calls.__guardedHttpCalls = (calls.__guardedHttpCalls ?? 0) + 1;
+      return c.json({ guarded: true });
+    }, {
       auth: "token",
     });
+    bb.http.route("POST", "/v1/messages", async (c: any) =>
+      c.json({
+        id: "msg_test",
+        type: "message",
+        echoed: await c.req.json(),
+      }));
     bb.http.route("GET", "/open", (c: any) => c.json({ open: true }), {
       auth: "none",
     });
@@ -167,6 +177,59 @@ async function writePlugin(
   );
   await writeFile(join(rootDir, "server.ts"), options.serverSource);
   return rootDir;
+}
+
+const DISABLED_PLUGIN_ERROR =
+  'plugin "wire" is disabled — retry the turn to resolve its ' +
+  "provider configuration again";
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function pausePluginHttpToken(plugins: TestAppHarness["pluginService"]): {
+  entered: Promise<void>;
+  release: () => void;
+  restore: () => void;
+} {
+  let releaseGate!: () => void;
+  const released = new Promise<void>((resolve) => {
+    releaseGate = resolve;
+  });
+  let markEntered!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    markEntered = resolve;
+  });
+  const original = plugins.httpToken.bind(plugins);
+  let paused = false;
+  const spy = vi
+    .spyOn(plugins, "httpToken")
+    .mockImplementation(async (id, options) => {
+      if (id === "wire" && !paused) {
+        paused = true;
+        markEntered();
+        await released;
+      }
+      return original(id, options);
+    });
+  return {
+    entered,
+    release() {
+      releaseGate();
+    },
+    restore() {
+      releaseGate();
+      spy.mockRestore();
+    },
+  };
 }
 
 async function rpc(
@@ -417,7 +480,25 @@ describe("plugin wire surfaces (http/rpc dispatcher + realtime)", () => {
     expect(await response.json()).toEqual({ open: true });
   });
 
-  it("maps unknown route → 404, unknown plugin → 404, disabled plugin → 503", async () => {
+  it("maps unknown route → 404, unknown plugin → 404, disabled plugin → 410", async () => {
+    const hello = () =>
+      harness.app.request(`${BASE}/api/v1/plugins/wire/http/hello`);
+    const messages = () =>
+      harness.app.request(`${BASE}/api/v1/plugins/wire/http/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "claude", messages: [] }),
+      });
+
+    expect((await hello()).status).toBe(200);
+    const posted = await messages();
+    expect(posted.status).toBe(200);
+    expect(await posted.json()).toEqual({
+      id: "msg_test",
+      type: "message",
+      echoed: { model: "claude", messages: [] },
+    });
+
     const unknownRoute = await harness.app.request(
       `${BASE}/api/v1/plugins/wire/http/nope`,
     );
@@ -432,14 +513,182 @@ describe("plugin wire surfaces (http/rpc dispatcher + realtime)", () => {
     });
 
     await harness.pluginService.setEnabled("wire", false);
-    const notRunning = await harness.app.request(
-      `${BASE}/api/v1/plugins/wire/http/hello`,
+    for (const request of [hello, messages]) {
+      const disabled = await request();
+      expect(disabled.status).toBe(410);
+      expect(disabled.headers.get("cache-control")).toBe("no-store");
+      expect(await disabled.json()).toEqual({
+        ok: false,
+        error: DISABLED_PLUGIN_ERROR,
+      });
+    }
+
+    expect((await harness.pluginService.setEnabled("wire", true))?.status).toBe(
+      "running",
     );
-    expect(notRunning.status).toBe(503);
-    expect(await notRunning.json()).toMatchObject({
-      ok: false,
-      error: expect.stringContaining("not running"),
+    const restored = await hello();
+    expect(restored.status).toBe(200);
+    expect(await restored.json()).toEqual({ message: "hello v1" });
+    expect((await messages()).status).toBe(200);
+  });
+
+  it("returns 410 when the plugin is disabled during token authentication", async () => {
+    const issued = await harness.app.request(
+      `${BASE}/api/v1/plugins/wire/token`,
+      { method: "POST" },
+    );
+    expect(issued.status).toBe(200);
+    const { token } = (await issued.json()) as { token: string };
+    const globals = globalThis as Record<string, unknown>;
+    globals.__guardedHttpCalls = 0;
+    const gate = pausePluginHttpToken(harness.pluginService);
+    const responsePromise = harness.app.request(
+      `${BASE}/api/v1/plugins/wire/http/guarded`,
+      { headers: { "x-bb-plugin-token": token } },
+    );
+    try {
+      await withTimeout(
+        gate.entered,
+        10_000,
+        "token authentication did not pause",
+      );
+      await harness.pluginService.setEnabled("wire", false);
+      gate.release();
+      const response = await responsePromise;
+      expect(response.status).toBe(410);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toEqual({
+        ok: false,
+        error: DISABLED_PLUGIN_ERROR,
+      });
+      expect(globals.__guardedHttpCalls).toBe(0);
+    } finally {
+      gate.restore();
+      await Promise.resolve(responsePromise).catch(() => undefined);
+      delete globals.__guardedHttpCalls;
+    }
+    expect(vi.isMockFunction(harness.pluginService.httpToken)).toBe(false);
+  });
+
+  it("returns 503 when token auth observes a reload that changes auth", async () => {
+    const issued = await harness.app.request(
+      `${BASE}/api/v1/plugins/wire/token`,
+      { method: "POST" },
+    );
+    expect(issued.status).toBe(200);
+    const { token } = (await issued.json()) as { token: string };
+    const globals = globalThis as Record<string, unknown>;
+    globals.__guardedHttpCalls = 0;
+    const gate = pausePluginHttpToken(harness.pluginService);
+    const responsePromise = harness.app.request(
+      `${BASE}/api/v1/plugins/wire/http/guarded`,
+      { headers: { "x-bb-plugin-token": token } },
+    );
+    try {
+      await withTimeout(
+        gate.entered,
+        10_000,
+        "token authentication did not pause",
+      );
+      await writeFile(
+        join(rootDir, "server.ts"),
+        `
+          export default function plugin(bb: any) {
+            bb.http.route("GET", "/guarded", (c: any) => {
+              const calls = globalThis as any;
+              calls.__guardedHttpCalls =
+                (calls.__guardedHttpCalls ?? 0) + 1;
+              return c.json({ guarded: true });
+            }, { auth: "local" });
+          }
+        `,
+      );
+      expect((await harness.pluginService.reload("wire")).ok).toBe(true);
+      gate.release();
+      const response = await responsePromise;
+      expect(response.status).toBe(503);
+      expect(response.headers.get("cache-control")).not.toBe("no-store");
+      expect(await response.json()).toEqual({
+        ok: false,
+        error: 'plugin "wire" reloaded during the request — retry',
+      });
+      expect(globals.__guardedHttpCalls).toBe(0);
+    } finally {
+      gate.restore();
+      await Promise.resolve(responsePromise).catch(() => undefined);
+      delete globals.__guardedHttpCalls;
+    }
+    expect(vi.isMockFunction(harness.pluginService.httpToken)).toBe(false);
+  });
+
+  it("keeps a plugin that is still starting at 503", async () => {
+    const bootingDir = await writePlugin(
+      join(harness.config.dataDir, "fixtures"),
+      {
+        name: "bb-plugin-booting",
+        serverSource: `
+          export default function plugin(bb: any) {
+            bb.http.route("GET", "/hello", (c: any) => c.json({ ready: true }));
+          }
+        `,
+      },
+    );
+    const installed = await harness.pluginService.installPath(bootingDir);
+    expect(installed).toMatchObject({ id: "booting", status: "running" });
+    const ready = await harness.app.request(
+      `${BASE}/api/v1/plugins/booting/http/hello`,
+    );
+    expect(ready.status).toBe(200);
+
+    await harness.pluginService.setEnabled("booting", false);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
     });
+    let entered!: () => void;
+    const loading = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const globals = globalThis as Record<string, unknown>;
+    globals.__bootingPluginGate = gate;
+    globals.__bootingPluginEntered = entered;
+    await writeFile(
+      join(bootingDir, "server.ts"),
+      `
+        export default async function plugin(bb: any) {
+          globalThis.__bootingPluginEntered();
+          await globalThis.__bootingPluginGate;
+          bb.http.route("GET", "/hello", (c: any) => c.json({ ready: true }));
+        }
+      `,
+    );
+    const enabling = harness.pluginService.setEnabled("booting", true);
+    try {
+      await withTimeout(
+        loading,
+        10_000,
+        "booting plugin did not enter its factory",
+      );
+      const starting = await harness.app.request(
+        `${BASE}/api/v1/plugins/booting/http/hello`,
+      );
+      expect(starting.status).toBe(503);
+      expect(starting.headers.get("cache-control")).not.toBe("no-store");
+      expect(await starting.json()).toEqual({
+        ok: false,
+        error: 'plugin "booting" is not running (status: starting)',
+      });
+    } finally {
+      release();
+      await enabling;
+      delete globals.__bootingPluginGate;
+      delete globals.__bootingPluginEntered;
+    }
+    const restored = await harness.app.request(
+      `${BASE}/api/v1/plugins/booting/http/hello`,
+    );
+    expect(restored.status).toBe(200);
+    expect(await restored.json()).toEqual({ ready: true });
   });
 
   it("maps a throwing route handler to a 500 and counts it in handlerStats", async () => {
